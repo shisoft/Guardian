@@ -10,8 +10,9 @@ use std::thread;
 use std::cmp::max;
 use std::io;
 use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
+use std::time::Duration;
 use parking_lot::Mutex;
-use clap::{Arg, App, SubCommand};
+use clap::{Arg, App};
 use stopwatch::{Stopwatch};
 use procinfo::pid::{statm};
 
@@ -89,7 +90,7 @@ fn main() {
     if timeout > 0 {
         let wrapped_sender = wrapped_sender.clone();
         thread::spawn(move || {
-            thread::sleep_ms(timeout);
+            thread::sleep(Duration::from_millis(timeout));
             let term_sender = wrapped_sender.lock();
             term_sender.send(TerminationState::Timeout)
         });
@@ -111,7 +112,7 @@ fn main() {
                 Ok(c) => c,
                 Err(e) => {
                     let term_sender = wrapped_sender.lock();
-                    term_sender.send(TerminationState::Error(e));
+                    term_sender.send(TerminationState::Error(e)).unwrap();
                     return;
                 }
             }
@@ -139,7 +140,7 @@ fn main() {
                     } else {
                         break;
                     }
-                    thread::sleep_ms(sample_rate);
+                    thread::sleep(Duration::from_millis(sample_rate));
                 }
             });
         }
@@ -152,7 +153,7 @@ fn main() {
             stderr: String::from_utf8(output.stderr).unwrap(),
             time: watch.elapsed_ms(),
             code: output.status.code().unwrap()
-        }));
+        })).unwrap();
     });
 
     let state = term_receiver.recv().unwrap();
