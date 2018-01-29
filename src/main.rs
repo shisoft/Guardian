@@ -59,13 +59,11 @@ fn main() {
                 .takes_value(true))
             .arg(Arg::with_name("COMMAND")
                 .help("Sets the command to execute")
+                .allow_hyphen_values(true)
                 .required(true)
+                .multiple(true)
+                .last(true)
                 .index(1))
-            .arg(Arg::with_name("ARGUMENTS")
-                .help("Sets the arguments to execute")
-                .required(false)
-                .index(2)
-                .multiple(true))
             .get_matches();
 
     let mut timeout = 0;
@@ -73,8 +71,9 @@ fn main() {
     let command = matches.value_of("COMMAND").unwrap().to_string();
     let arguments = matches.values_of("ARGUMENTS")
         .map(|vs|
-            vs.map(|str|
-                str.to_string())
+            vs.skip(1)
+              .map(|str|
+                    str.to_string())
               .collect::<Vec<_>>());
     if let Some(t) = matches.value_of("timeout") {
         timeout = t.parse().unwrap();
