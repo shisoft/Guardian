@@ -5,3 +5,6 @@ authors = ["Hao Shi <shisoftgenius@gmail.com>"]
 
 [dependencies]
 clap = "*"
+parking_lot = "*"
+stopwatch = "*"
+procinfo = "*"
