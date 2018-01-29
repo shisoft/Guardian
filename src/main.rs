@@ -102,11 +102,10 @@ fn main() {
                 cmd.arg(arg);
             }
         }
+        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
         let mut watch = Stopwatch::start_new();
         let child = {
             match cmd
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
                 .spawn()
             {
                 Ok(c) => c,
