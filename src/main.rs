@@ -105,7 +105,7 @@ fn main() {
         let child = {
             match cmd
                 .stdout(Stdio::piped())
-                .stdin(Stdio::piped())
+                .stderr(Stdio::piped())
                 .spawn()
             {
                 Ok(c) => c,
