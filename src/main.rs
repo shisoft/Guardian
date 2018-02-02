@@ -8,7 +8,7 @@ extern crate parking_lot;
 extern crate stopwatch;
 extern crate procinfo;
 
-use std::sync::mpsc::{channel};
+use std::sync::mpsc::{sync_channel};
 use std::sync::Arc;
 use std::process::{Command, Stdio};
 use std::thread;
@@ -124,18 +124,12 @@ fn main() {
         sample_rate = s.parse().unwrap();
     }
 
-    let (term_sender, term_receiver) = channel();
+    let (term_sender, term_receiver) = sync_channel(1);
     let wrapped_sender = Arc::new(Mutex::new(term_sender));
     let running = Arc::new(AtomicBool::new(true));
-    let running_clone = running.clone();
-    if timeout > 0 {
-        let wrapped_sender = wrapped_sender.clone();
-        thread::spawn(move || {
-            thread::sleep(Duration::from_millis(timeout));
-            let term_sender = wrapped_sender.lock();
-            term_sender.send(TerminationState::Timeout)
-        });
-    }
+    let running_clone1 = running.clone();
+    let running_clone2 = running.clone();
+    let running_clone3 = running.clone();
     let max_stat = Arc::new(AtomicPtr::new(&mut Statm {
         size: 0, resident: 0, share: 0, text: 0, data: 0
     }));
@@ -171,10 +165,26 @@ fn main() {
             }
         };
         let pid = child.id();
+        if timeout > 0 {
+            let wrapped_sender = wrapped_sender.clone();
+            thread::spawn(move || {
+                thread::sleep(Duration::from_millis(timeout));
+                running_clone1.store(false, Ordering::Relaxed);
+
+                // kill the process
+                assert!(Command::new("kill")
+                    .arg("-9")
+                    .arg(format!("{}", pid))
+                    .status()
+                    .unwrap().success());
+                let term_sender = wrapped_sender.lock();
+                term_sender.send(TerminationState::Timeout).unwrap();
+            });
+        }
         if sample_rate > 0 {
             // sample resource consumption
             thread::spawn(move || {
-                while running_clone.load(Ordering::Relaxed) {
+                while running_clone2.load(Ordering::Relaxed) {
                     if let Ok(statm) = statm(pid as i32) {
                         let prev_stat = unsafe { *max_stat.load(Ordering::Relaxed) };
                         max_stat.store(
@@ -195,12 +205,14 @@ fn main() {
         }
         let output = child.wait_with_output().unwrap();
         watch.stop();
-        let term_sender = wrapped_sender.lock();
-        term_sender.send(TerminationState::Exited(ExitStatus {
-            statm: unsafe { *max_stat_clone.load(Ordering::Relaxed) },
-            time: watch.elapsed_ms(),
-            code: output.status.code().unwrap()
-        })).unwrap();
+        if running_clone3.load(Ordering::Relaxed) {
+            let term_sender = wrapped_sender.lock();
+            term_sender.send(TerminationState::Exited(ExitStatus {
+                statm: unsafe { *max_stat_clone.load(Ordering::Relaxed) },
+                time: watch.elapsed_ms(),
+                code: output.status.code().unwrap()
+            })).unwrap();
+        }
     });
 
     let state = term_receiver.recv().unwrap();
