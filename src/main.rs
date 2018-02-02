@@ -82,11 +82,11 @@ fn main() {
                 .long("stdout")
                 .value_name("STDOUT_FILE")
                 .help("Sets the standard output file")
-                .takes_value(false))
+                .takes_value(true))
             .arg(Arg::with_name("stderr")
                 .short("e")
                 .long("stderr")
-                .value_name("STDERR")
+                .value_name("STDERR_FILE")
                 .help("Sets the standard error output file")
                 .takes_value(true))
             .arg(Arg::with_name("consumption")
@@ -140,6 +140,7 @@ fn main() {
         size: 0, resident: 0, share: 0, text: 0, data: 0
     }));
     let max_stat_clone = max_stat.clone();
+    let max_stat_clone2 = max_stat.clone();
     thread::spawn(move || {
         let mut cmd = Command::new(command);
         if let Some(arguments) = arguments {
@@ -205,8 +206,31 @@ fn main() {
     let state = term_receiver.recv().unwrap();
     running.store(false, Ordering::Relaxed);
     if let Some(consout) = consout {
-        match state {
-
-        }
-    }
+        let stat = unsafe { *max_stat_clone2.load(Ordering::Relaxed) };
+        let cons_result = match state {
+            TerminationState::Timeout => ConsumptionOutput {
+                stat,
+                time: timeout as i64,
+                code: 0,
+                error: None,
+                timeout: true
+            },
+            TerminationState::Error(e) => ConsumptionOutput {
+                stat,
+                time: 0,
+                code: 0,
+                error: Some(format!("{:?}", e)),
+                timeout: false
+            },
+            TerminationState::Exited(s) => ConsumptionOutput {
+                stat: s.statm,
+                time: s.time,
+                code: s.code,
+                error: None,
+                timeout: false
+            }
+        };
+        let mut consout_file = File::create(consout).unwrap();
+        serde_json::to_writer(consout_file, &cons_result).unwrap();
+    };
 }
