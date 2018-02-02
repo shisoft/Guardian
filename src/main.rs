@@ -1,3 +1,8 @@
+#[macro_use]
+extern crate serde_derive;
+
+extern crate serde;
+extern crate serde_json;
 extern crate clap;
 extern crate parking_lot;
 extern crate stopwatch;
@@ -11,6 +16,7 @@ use std::cmp::max;
 use std::io;
 use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
 use std::time::Duration;
+use std::fs::File;
 use parking_lot::Mutex;
 use clap::{Arg, App};
 use stopwatch::{Stopwatch};
@@ -35,10 +41,17 @@ struct Statm {
 #[derive(Debug)]
 struct ExitStatus {
     statm: Statm,
-    stdout: String,
-    stderr: String,
     time: i64,
     code: i32
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct ConsumptionOutput {
+    stat: Statm,
+    time: i64,
+    code: i32,
+    error: Option<String>,
+    timeout: bool
 }
 
 fn main() {
@@ -58,6 +71,30 @@ fn main() {
                 .value_name("SAMPLE_RATE_IN_MS")
                 .help("Sets the sampling rate for resource consumption")
                 .takes_value(true))
+            .arg(Arg::with_name("stdin")
+                .short("i")
+                .long("stdin")
+                .value_name("STDIN_FILE")
+                .help("Sets the standard input file")
+                .takes_value(true))
+            .arg(Arg::with_name("stdout")
+                .short("o")
+                .long("stdout")
+                .value_name("STDOUT_FILE")
+                .help("Sets the standard output file")
+                .takes_value(false))
+            .arg(Arg::with_name("stderr")
+                .short("e")
+                .long("stderr")
+                .value_name("STDERR")
+                .help("Sets the standard error output file")
+                .takes_value(true))
+            .arg(Arg::with_name("consumption")
+                .short("c")
+                .long("consumption")
+                .value_name("CONSUMPTION_OUT")
+                .help("Sets the consumption output file")
+                .takes_value(true))
             .arg(Arg::with_name("COMMAND")
                 .help("Sets the command to execute")
                 .allow_hyphen_values(true)
@@ -70,7 +107,11 @@ fn main() {
     let mut timeout = 0;
     let mut sample_rate = 0;
     let command = matches.value_of("COMMAND").unwrap().to_string();
-    let arguments = matches.values_of("ARGUMENTS")
+    let stdin = matches.value_of("stdin").map(|s| s.to_string());
+    let stdout = matches.value_of("stdout").map(|s| s.to_string());
+    let stderr = matches.value_of("stderr").map(|s| s.to_string());
+    let consout = matches.value_of("consumption").map(|s| s.to_string());
+    let arguments = matches.values_of("COMMAND")
         .map(|vs|
             vs.skip(1)
               .map(|str|
@@ -95,6 +136,10 @@ fn main() {
             term_sender.send(TerminationState::Timeout)
         });
     }
+    let max_stat = Arc::new(AtomicPtr::new(&mut Statm {
+        size: 0, resident: 0, share: 0, text: 0, data: 0
+    }));
+    let max_stat_clone = max_stat.clone();
     thread::spawn(move || {
         let mut cmd = Command::new(command);
         if let Some(arguments) = arguments {
@@ -102,7 +147,15 @@ fn main() {
                 cmd.arg(arg);
             }
         }
-        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+        if let Some(stdin) = stdin {
+            cmd.stdin(Stdio::from(File::open(stdin).unwrap()));
+        }
+        if let Some(stdout) = stdout {
+            cmd.stdout(Stdio::from(File::create(stdout).unwrap()));
+        }
+        if let Some(stderr) = stderr {
+            cmd.stderr(Stdio::from(File::create(stderr).unwrap()));
+        }
         let mut watch = Stopwatch::start_new();
         let child = {
             match cmd
@@ -117,10 +170,6 @@ fn main() {
             }
         };
         let pid = child.id();
-        let max_stat = Arc::new(AtomicPtr::new(&mut Statm {
-            size: 0, resident: 0, share: 0, text: 0, data: 0
-        }));
-        let max_stat_clone = max_stat.clone();
         if sample_rate > 0 {
             // sample resource consumption
             thread::spawn(move || {
@@ -148,8 +197,6 @@ fn main() {
         let term_sender = wrapped_sender.lock();
         term_sender.send(TerminationState::Exited(ExitStatus {
             statm: unsafe { *max_stat_clone.load(Ordering::Relaxed) },
-            stdout: String::from_utf8(output.stdout).unwrap(),
-            stderr: String::from_utf8(output.stderr).unwrap(),
             time: watch.elapsed_ms(),
             code: output.status.code().unwrap()
         })).unwrap();
@@ -157,5 +204,9 @@ fn main() {
 
     let state = term_receiver.recv().unwrap();
     running.store(false, Ordering::Relaxed);
-    println!("{:?}", state);
+    if let Some(consout) = consout {
+        match state {
+
+        }
+    }
 }
