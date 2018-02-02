@@ -29,7 +29,7 @@ enum TerminationState {
     Exited(ExitStatus)
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 struct Statm {
     size: usize,
     resident: usize,
